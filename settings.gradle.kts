@@ -35,15 +35,22 @@ dependencyResolutionManagement {
     }
 }
 
+plugins {
+    id("org.gradle.toolchains.foojay-resolver-convention") version "0.9.0"
+}
+
+enableFeaturePreview("TYPESAFE_PROJECT_ACCESSORS")
+
 rootProject.name = "Mihon"
 include(":app")
-include(":i18n")
-include(":source-api")
-include(":core")
-include(":macrobenchmark")
+include(":core-metadata")
+include(":core:archive")
+include(":core:common")
 include(":data")
 include(":domain")
-include(":presentation-widget")
+include(":i18n")
+include(":macrobenchmark")
 include(":presentation-core")
+include(":presentation-widget")
+include(":source-api")
 include(":source-local")
-include(":core-metadata")

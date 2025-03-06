@@ -5,9 +5,9 @@ import eu.kanade.tachiyomi.data.cache.CoverCache
 import eu.kanade.tachiyomi.source.model.SManga
 import eu.kanade.tachiyomi.ui.reader.setting.ReaderOrientation
 import eu.kanade.tachiyomi.ui.reader.setting.ReadingMode
+import tachiyomi.core.common.preference.TriState
 import tachiyomi.core.metadata.comicinfo.ComicInfo
 import tachiyomi.core.metadata.comicinfo.ComicInfoPublishingStatus
-import tachiyomi.core.preference.TriState
 import tachiyomi.domain.chapter.model.Chapter
 import tachiyomi.domain.manga.model.Manga
 import uy.kohesive.injekt.Injekt
@@ -22,7 +22,7 @@ val Manga.readerOrientation: Long
 
 val Manga.downloadedFilter: TriState
     get() {
-        if (forceDownloaded()) return TriState.ENABLED_IS
+        if (Injekt.get<BasePreferences>().downloadedOnly().get()) return TriState.ENABLED_IS
         return when (downloadedFilterRaw) {
             Manga.CHAPTER_SHOW_DOWNLOADED -> TriState.ENABLED_IS
             Manga.CHAPTER_SHOW_NOT_DOWNLOADED -> TriState.ENABLED_NOT
@@ -33,9 +33,6 @@ fun Manga.chaptersFiltered(): Boolean {
     return unreadFilter != TriState.DISABLED ||
         downloadedFilter != TriState.DISABLED ||
         bookmarkedFilter != TriState.DISABLED
-}
-fun Manga.forceDownloaded(): Boolean {
-    return favorite && Injekt.get<BasePreferences>().downloadedOnly().get()
 }
 
 fun Manga.toSManga(): SManga = SManga.create().also {
@@ -95,7 +92,13 @@ fun Manga.hasCustomCover(coverCache: CoverCache = Injekt.get()): Boolean {
 /**
  * Creates a ComicInfo instance based on the manga and chapter metadata.
  */
-fun getComicInfo(manga: Manga, chapter: Chapter, chapterUrl: String, categories: List<String>?) = ComicInfo(
+fun getComicInfo(
+    manga: Manga,
+    chapter: Chapter,
+    urls: List<String>,
+    categories: List<String>?,
+    sourceName: String,
+) = ComicInfo(
     title = ComicInfo.Title(chapter.name),
     series = ComicInfo.Series(manga.title),
     number = chapter.chapterNumber.takeIf { it >= 0 }?.let {
@@ -105,7 +108,7 @@ fun getComicInfo(manga: Manga, chapter: Chapter, chapterUrl: String, categories:
             ComicInfo.Number(it.toString())
         }
     },
-    web = ComicInfo.Web(chapterUrl),
+    web = ComicInfo.Web(urls.joinToString(" ")),
     summary = manga.description?.let { ComicInfo.Summary(it) },
     writer = manga.author?.let { ComicInfo.Writer(it) },
     penciller = manga.artist?.let { ComicInfo.Penciller(it) },
@@ -115,6 +118,7 @@ fun getComicInfo(manga: Manga, chapter: Chapter, chapterUrl: String, categories:
         ComicInfoPublishingStatus.toComicInfoValue(manga.status),
     ),
     categories = categories?.let { ComicInfo.CategoriesTachiyomi(it.joinToString()) },
+    source = ComicInfo.SourceMihon(sourceName),
     inker = null,
     colorist = null,
     letterer = null,

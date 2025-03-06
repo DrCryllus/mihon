@@ -53,7 +53,7 @@ class MangaRestorer(
             )
     }
 
-    suspend fun restoreManga(
+    suspend fun restore(
         backupManga: BackupManga,
         backupCategories: List<BackupCategory>,
     ) {
@@ -71,8 +71,9 @@ class MangaRestorer(
                 chapters = backupManga.chapters,
                 categories = backupManga.categories,
                 backupCategories = backupCategories,
-                history = backupManga.history + backupManga.brokenHistory.map { it.toBackupHistory() },
+                history = backupManga.history,
                 tracks = backupManga.tracking,
+                excludedScanlators = backupManga.excludedScanlators,
             )
         }
     }
@@ -82,7 +83,7 @@ class MangaRestorer(
     }
 
     private suspend fun restoreExistingManga(manga: Manga, dbManga: Manga): Manga {
-        return if (manga.lastModifiedAt > dbManga.lastModifiedAt) {
+        return if (manga.version > dbManga.version) {
             updateManga(dbManga.copyFrom(manga).copy(id = dbManga.id))
         } else {
             updateManga(manga.copyFrom(dbManga).copy(id = dbManga.id))
@@ -99,6 +100,7 @@ class MangaRestorer(
             thumbnailUrl = newer.thumbnailUrl,
             status = newer.status,
             initialized = this.initialized || newer.initialized,
+            version = newer.version,
         )
     }
 
@@ -125,6 +127,8 @@ class MangaRestorer(
                 dateAdded = manga.dateAdded,
                 mangaId = manga.id,
                 updateStrategy = manga.updateStrategy.let(UpdateStrategyColumnAdapter::encode),
+                version = manga.version,
+                isSyncing = 1,
             )
         }
         return manga
@@ -136,6 +140,7 @@ class MangaRestorer(
         return manga.copy(
             initialized = manga.description != null,
             id = insertManga(manga),
+            version = manga.version,
         )
     }
 
@@ -182,7 +187,7 @@ class MangaRestorer(
     }
 
     private fun Chapter.forComparison() =
-        this.copy(id = 0L, mangaId = 0L, dateFetch = 0L, dateUpload = 0L, lastModifiedAt = 0L)
+        this.copy(id = 0L, mangaId = 0L, dateFetch = 0L, dateUpload = 0L, lastModifiedAt = 0L, version = 0L)
 
     private suspend fun insertNewChapters(chapters: List<Chapter>) {
         handler.await(true) {
@@ -199,6 +204,7 @@ class MangaRestorer(
                     chapter.sourceOrder,
                     chapter.dateFetch,
                     chapter.dateUpload,
+                    chapter.version,
                 )
             }
         }
@@ -220,6 +226,8 @@ class MangaRestorer(
                     dateFetch = null,
                     dateUpload = null,
                     chapterId = chapter.id,
+                    version = chapter.version,
+                    isSyncing = 0,
                 )
             }
         }
@@ -252,6 +260,7 @@ class MangaRestorer(
                 coverLastModified = manga.coverLastModified,
                 dateAdded = manga.dateAdded,
                 updateStrategy = manga.updateStrategy,
+                version = manga.version,
             )
             mangasQueries.selectLastInsertedRowId()
         }
@@ -264,11 +273,13 @@ class MangaRestorer(
         backupCategories: List<BackupCategory>,
         history: List<BackupHistory>,
         tracks: List<BackupTracking>,
+        excludedScanlators: List<String>,
     ): Manga {
         restoreCategories(manga, categories, backupCategories)
         restoreChapters(manga, chapters)
         restoreTracking(manga, tracks)
         restoreHistory(history)
+        restoreExcludedScanlators(manga, excludedScanlators)
         updateManga.awaitUpdateFetchInterval(manga, now, currentFetchWindow)
         return manga
     }
@@ -393,6 +404,7 @@ class MangaRestorer(
                         track.remoteUrl,
                         track.startDate,
                         track.finishDate,
+                        track.private,
                         track.id,
                     )
                 }
@@ -401,4 +413,25 @@ class MangaRestorer(
     }
 
     private fun Track.forComparison() = this.copy(id = 0L, mangaId = 0L)
+
+    /**
+     * Restores the excluded scanlators for the manga.
+     *
+     * @param manga the manga whose excluded scanlators have to be restored.
+     * @param excludedScanlators the excluded scanlators to restore.
+     */
+    private suspend fun restoreExcludedScanlators(manga: Manga, excludedScanlators: List<String>) {
+        if (excludedScanlators.isEmpty()) return
+        val existingExcludedScanlators = handler.awaitList {
+            excluded_scanlatorsQueries.getExcludedScanlatorsByMangaId(manga.id)
+        }
+        val toInsert = excludedScanlators.filter { it !in existingExcludedScanlators }
+        if (toInsert.isNotEmpty()) {
+            handler.await {
+                toInsert.forEach {
+                    excluded_scanlatorsQueries.insert(manga.id, it)
+                }
+            }
+        }
+    }
 }

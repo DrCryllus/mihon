@@ -1,9 +1,9 @@
 package tachiyomi.domain.library.service
 
-import tachiyomi.core.preference.Preference
-import tachiyomi.core.preference.PreferenceStore
-import tachiyomi.core.preference.TriState
-import tachiyomi.core.preference.getEnum
+import tachiyomi.core.common.preference.Preference
+import tachiyomi.core.common.preference.PreferenceStore
+import tachiyomi.core.common.preference.TriState
+import tachiyomi.core.common.preference.getEnum
 import tachiyomi.domain.library.model.LibraryDisplayMode
 import tachiyomi.domain.library.model.LibrarySort
 import tachiyomi.domain.manga.model.Manga
@@ -25,6 +25,8 @@ class LibraryPreferences(
         LibrarySort.Serializer::serialize,
         LibrarySort.Serializer::deserialize,
     )
+
+    fun randomSortSeed() = preferenceStore.getInt("library_random_sort_seed", 0)
 
     fun portraitColumns() = preferenceStore.getInt("pref_library_columns_portrait_key", 0)
 
@@ -107,7 +109,7 @@ class LibraryPreferences(
 
     // region Category
 
-    fun defaultCategory() = preferenceStore.getInt("default_category", -1)
+    fun defaultCategory() = preferenceStore.getInt(DEFAULT_CATEGORY_PREF_KEY, -1)
 
     fun lastUsedCategory() = preferenceStore.getInt(Preference.appStateKey("last_used_category"), 0)
 
@@ -117,12 +119,11 @@ class LibraryPreferences(
 
     fun categorizedDisplaySettings() = preferenceStore.getBoolean("categorized_display", false)
 
-    fun updateCategories() = preferenceStore.getStringSet("library_update_categories", emptySet())
+    fun markDuplicateChapterRead() = preferenceStore.getBoolean("mark_duplicate_chapter_read", false)
 
-    fun updateCategoriesExclude() = preferenceStore.getStringSet(
-        "library_update_categories_exclude",
-        emptySet(),
-    )
+    fun updateCategories() = preferenceStore.getStringSet(LIBRARY_UPDATE_CATEGORIES_PREF_KEY, emptySet())
+
+    fun updateCategoriesExclude() = preferenceStore.getStringSet(LIBRARY_UPDATE_CATEGORIES_EXCLUDE_PREF_KEY, emptySet())
 
     // endregion
 
@@ -204,5 +205,14 @@ class LibraryPreferences(
         const val MANGA_HAS_UNREAD = "manga_fully_read"
         const val MANGA_NON_READ = "manga_started"
         const val MANGA_OUTSIDE_RELEASE_PERIOD = "manga_outside_release_period"
+
+        const val DEFAULT_CATEGORY_PREF_KEY = "default_category"
+        private const val LIBRARY_UPDATE_CATEGORIES_PREF_KEY = "library_update_categories"
+        private const val LIBRARY_UPDATE_CATEGORIES_EXCLUDE_PREF_KEY = "library_update_categories_exclude"
+        val categoryPreferenceKeys = setOf(
+            DEFAULT_CATEGORY_PREF_KEY,
+            LIBRARY_UPDATE_CATEGORIES_PREF_KEY,
+            LIBRARY_UPDATE_CATEGORIES_EXCLUDE_PREF_KEY,
+        )
     }
 }

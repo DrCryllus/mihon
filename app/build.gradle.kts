@@ -1,20 +1,26 @@
-import org.jetbrains.kotlin.gradle.tasks.KotlinCompile
+import mihon.buildlogic.getBuildTime
+import mihon.buildlogic.getCommitCount
+import mihon.buildlogic.getGitSha
 
 plugins {
-    id("com.android.application")
-    id("com.mikepenz.aboutlibraries.plugin")
-    kotlin("android")
-    kotlin("plugin.serialization")
+    id("mihon.android.application")
+    id("mihon.android.application.compose")
     id("com.github.zellius.shortcut-helper")
+    kotlin("plugin.serialization")
+    alias(libs.plugins.aboutLibraries)
 }
 
-if (gradle.startParameter.taskRequests.toString().contains("Standard")) {
-    apply<com.google.gms.googleservices.GoogleServicesPlugin>()
+val includeAnalytics = project.hasProperty("with-analytics")
+val includeUpdater = project.hasProperty("with-updater")
+
+if (includeAnalytics) {
+    pluginManager.apply {
+        apply(libs.plugins.google.services.get().pluginId)
+        apply(libs.plugins.firebase.crashlytics.get().pluginId)
+    }
 }
 
 shortcutHelper.setFilePath("./shortcuts.xml")
-
-val SUPPORTED_ABIS = setOf("armeabi-v7a", "arm64-v8a", "x86", "x86_64")
 
 android {
     namespace = "eu.kanade.tachiyomi"
@@ -22,95 +28,106 @@ android {
     defaultConfig {
         applicationId = "app.mihon"
 
-        versionCode = 1
-        versionName = "0.16.0"
+        versionCode = 10
+        versionName = "0.17.1"
 
         buildConfigField("String", "COMMIT_COUNT", "\"${getCommitCount()}\"")
         buildConfigField("String", "COMMIT_SHA", "\"${getGitSha()}\"")
         buildConfigField("String", "BUILD_TIME", "\"${getBuildTime()}\"")
-        buildConfigField("boolean", "INCLUDE_UPDATER", "false")
+        buildConfigField("boolean", "INCLUDE_ANALYTICS", "$includeAnalytics")
+        buildConfigField("boolean", "INCLUDE_UPDATER", "$includeUpdater")
         buildConfigField("boolean", "PREVIEW", "false")
 
-        ndk {
-            abiFilters += SUPPORTED_ABIS
-        }
-
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
+    }
+
+    buildTypes {
+        val debug by getting {
+            applicationIdSuffix = ".dev"
+            versionNameSuffix = "-${getCommitCount()}"
+            isPseudoLocalesEnabled = true
+        }
+        val release by getting {
+            isMinifyEnabled = true
+            isShrinkResources = true
+
+            proguardFiles("proguard-android-optimize.txt", "proguard-rules.pro")
+        }
+        create("foss") {
+            initWith(release)
+
+            applicationIdSuffix = ".t-foss"
+
+            matchingFallbacks.add(release.name)
+        }
+        create("preview") {
+            initWith(release)
+
+            applicationIdSuffix = ".debug"
+
+            versionNameSuffix = debug.versionNameSuffix
+            signingConfig = debug.signingConfig
+
+            matchingFallbacks.add(release.name)
+
+            buildConfigField("boolean", "PREVIEW", "true")
+        }
+        create("benchmark") {
+            initWith(release)
+
+            isDebuggable = false
+            isProfileable = true
+            versionNameSuffix = "-benchmark"
+            applicationIdSuffix = ".benchmark"
+
+            signingConfig = debug.signingConfig
+
+            matchingFallbacks.add(release.name)
+        }
+    }
+
+    sourceSets {
+        val analyticsDir = if (includeAnalytics) "analytics-firebase" else "analytics-firebase-noop"
+        getByName("main").kotlin.srcDirs("src/$analyticsDir/kotlin")
+        getByName("preview").res.srcDirs("src/debug/res")
+        getByName("benchmark").res.srcDirs("src/debug/res")
     }
 
     splits {
         abi {
             isEnable = true
-            reset()
-            include(*SUPPORTED_ABIS.toTypedArray())
             isUniversalApk = true
-        }
-    }
-
-    buildTypes {
-        named("debug") {
-            versionNameSuffix = "-${getCommitCount()}"
-            applicationIdSuffix = ".debug"
-            isPseudoLocalesEnabled = true
-        }
-        named("release") {
-            isShrinkResources = true
-            isMinifyEnabled = true
-            proguardFiles("proguard-android-optimize.txt", "proguard-rules.pro")
-        }
-        create("preview") {
-            initWith(getByName("release"))
-            buildConfigField("boolean", "PREVIEW", "true")
-
-            signingConfig = signingConfigs.getByName("debug")
-            matchingFallbacks.add("release")
-            val debugType = getByName("debug")
-            versionNameSuffix = debugType.versionNameSuffix
-            applicationIdSuffix = debugType.applicationIdSuffix
-        }
-        create("benchmark") {
-            initWith(getByName("release"))
-
-            signingConfig = signingConfigs.getByName("debug")
-            matchingFallbacks.add("release")
-            isDebuggable = false
-            isProfileable = true
-            versionNameSuffix = "-benchmark"
-            applicationIdSuffix = ".benchmark"
-        }
-    }
-
-    sourceSets {
-        getByName("preview").res.srcDirs("src/debug/res")
-        getByName("benchmark").res.srcDirs("src/debug/res")
-    }
-
-    flavorDimensions.add("default")
-
-    productFlavors {
-        create("standard") {
-            buildConfigField("boolean", "INCLUDE_UPDATER", "true")
-            dimension = "default"
-        }
-        create("dev") {
-            // Include pseudolocales: https://developer.android.com/guide/topics/resources/pseudolocales
-            resourceConfigurations.addAll(listOf("en", "en_XA", "ar_XB", "xxhdpi"))
-            dimension = "default"
+            reset()
+            include("armeabi-v7a", "arm64-v8a", "x86", "x86_64")
         }
     }
 
     packaging {
-        resources.excludes.addAll(
-            listOf(
-                "META-INF/DEPENDENCIES",
+        jniLibs {
+            keepDebugSymbols += listOf(
+                "libandroidx.graphics.path",
+                "libarchive-jni",
+                "libconscrypt_jni",
+                "libimagedecoder",
+                "libquickjs",
+                "libsqlite3x",
+            )
+                .map { "**/$it.so" }
+        }
+        resources {
+            excludes += setOf(
+                "kotlin-tooling-metadata.json",
                 "LICENSE.txt",
+                "META-INF/**/*.properties",
+                "META-INF/**/LICENSE.txt",
+                "META-INF/*.properties",
+                "META-INF/*.version",
+                "META-INF/DEPENDENCIES",
                 "META-INF/LICENSE",
-                "META-INF/LICENSE.txt",
-                "META-INF/README.md",
                 "META-INF/NOTICE",
-                "META-INF/*.kotlin_module",
-            ),
-        )
+                "META-INF/README.md",
+            )
+        }
     }
 
     dependenciesInfo {
@@ -119,7 +136,6 @@ android {
 
     buildFeatures {
         viewBinding = true
-        compose = true
         buildConfig = true
 
         // Disable some unused things
@@ -132,38 +148,50 @@ android {
         abortOnError = false
         checkReleaseBuilds = false
     }
+}
 
-    composeOptions {
-        kotlinCompilerExtensionVersion = compose.versions.compiler.get()
+kotlin {
+    compilerOptions {
+        freeCompilerArgs.addAll(
+            "-opt-in=androidx.compose.animation.ExperimentalAnimationApi",
+            "-opt-in=androidx.compose.animation.graphics.ExperimentalAnimationGraphicsApi",
+            "-opt-in=androidx.compose.foundation.ExperimentalFoundationApi",
+            "-opt-in=androidx.compose.foundation.layout.ExperimentalLayoutApi",
+            "-opt-in=androidx.compose.material3.ExperimentalMaterial3Api",
+            "-opt-in=androidx.compose.ui.ExperimentalComposeUiApi",
+            "-opt-in=coil3.annotation.ExperimentalCoilApi",
+            "-opt-in=kotlinx.coroutines.ExperimentalCoroutinesApi",
+            "-opt-in=kotlinx.coroutines.FlowPreview",
+            "-opt-in=kotlinx.coroutines.InternalCoroutinesApi",
+            "-opt-in=kotlinx.serialization.ExperimentalSerializationApi",
+        )
     }
 }
 
 dependencies {
-    implementation(project(":i18n"))
-    implementation(project(":core"))
-    implementation(project(":core-metadata"))
-    implementation(project(":source-api"))
-    implementation(project(":source-local"))
-    implementation(project(":data"))
-    implementation(project(":domain"))
-    implementation(project(":presentation-core"))
-    implementation(project(":presentation-widget"))
+    implementation(projects.i18n)
+    implementation(projects.core.archive)
+    implementation(projects.core.common)
+    implementation(projects.coreMetadata)
+    implementation(projects.sourceApi)
+    implementation(projects.sourceLocal)
+    implementation(projects.data)
+    implementation(projects.domain)
+    implementation(projects.presentationCore)
+    implementation(projects.presentationWidget)
 
     // Compose
-    implementation(platform(compose.bom))
     implementation(compose.activity)
     implementation(compose.foundation)
     implementation(compose.material3.core)
-    implementation(compose.material.core)
     implementation(compose.material.icons)
     implementation(compose.animation)
     implementation(compose.animation.graphics)
     debugImplementation(compose.ui.tooling)
     implementation(compose.ui.tooling.preview)
     implementation(compose.ui.util)
-    implementation(compose.accompanist.webview)
-    implementation(compose.accompanist.systemuicontroller)
-    lintChecks(compose.lintchecks)
+
+    implementation(androidx.interpolator)
 
     implementation(androidx.paging.runtime)
     implementation(androidx.paging.compose)
@@ -209,13 +237,12 @@ dependencies {
     // Disk
     implementation(libs.disklrucache)
     implementation(libs.unifile)
-    implementation(libs.junrar)
 
     // Preferences
     implementation(libs.preferencektx)
 
     // Dependency injection
-    implementation(libs.injekt.core)
+    implementation(libs.injekt)
 
     // Image loading
     implementation(platform(libs.coil.bom))
@@ -238,12 +265,19 @@ dependencies {
     implementation(libs.bundles.voyager)
     implementation(libs.compose.materialmotion)
     implementation(libs.swipe)
+    implementation(libs.compose.webview)
+    implementation(libs.compose.grid)
+    implementation(libs.reorderable)
 
     // Logging
     implementation(libs.logcat)
 
     // Crash reports/analytics
-    "standardImplementation"(libs.firebase.analytics)
+    if (includeAnalytics) {
+        implementation(platform(libs.firebase.bom))
+        implementation(libs.firebase.analytics)
+        implementation(libs.firebase.crashlytics)
+    }
 
     // Shizuku
     implementation(libs.bundles.shizuku)
@@ -254,6 +288,8 @@ dependencies {
     // For detecting memory leaks; see https://square.github.io/leakcanary/
     // debugImplementation(libs.leakcanary.android)
     implementation(libs.leakcanary.plumber)
+
+    testImplementation(kotlinx.coroutines.test)
 }
 
 androidComponents {
@@ -269,42 +305,6 @@ androidComponents {
         // Only excluding in standard flavor because this breaks
         // Layout Inspector's Compose tree
         it.packaging.resources.excludes.add("META-INF/*.version")
-    }
-}
-
-tasks {
-    // See https://kotlinlang.org/docs/reference/experimental.html#experimental-status-of-experimental-api(-markers)
-    withType<KotlinCompile> {
-        kotlinOptions.freeCompilerArgs += listOf(
-            "-Xcontext-receivers",
-            "-opt-in=androidx.compose.foundation.layout.ExperimentalLayoutApi",
-            "-opt-in=androidx.compose.material.ExperimentalMaterialApi",
-            "-opt-in=androidx.compose.material3.ExperimentalMaterial3Api",
-            "-opt-in=androidx.compose.material.ExperimentalMaterialApi",
-            "-opt-in=androidx.compose.ui.ExperimentalComposeUiApi",
-            "-opt-in=androidx.compose.foundation.ExperimentalFoundationApi",
-            "-opt-in=androidx.compose.animation.ExperimentalAnimationApi",
-            "-opt-in=androidx.compose.animation.graphics.ExperimentalAnimationGraphicsApi",
-            "-opt-in=coil.annotation.ExperimentalCoilApi",
-            "-opt-in=com.google.accompanist.permissions.ExperimentalPermissionsApi",
-            "-opt-in=kotlinx.coroutines.ExperimentalCoroutinesApi",
-            "-opt-in=kotlinx.coroutines.FlowPreview",
-            "-opt-in=kotlinx.coroutines.InternalCoroutinesApi",
-            "-opt-in=kotlinx.serialization.ExperimentalSerializationApi",
-        )
-
-        if (project.findProperty("tachiyomi.enableComposeCompilerMetrics") == "true") {
-            kotlinOptions.freeCompilerArgs += listOf(
-                "-P",
-                "plugin:androidx.compose.compiler.plugins.kotlin:reportsDestination=" +
-                    project.layout.buildDirectory.dir("compose_metrics").get().asFile.absolutePath,
-            )
-            kotlinOptions.freeCompilerArgs += listOf(
-                "-P",
-                "plugin:androidx.compose.compiler.plugins.kotlin:metricsDestination=" +
-                    project.layout.buildDirectory.dir("compose_metrics").get().asFile.absolutePath,
-            )
-        }
     }
 }
 

@@ -5,7 +5,8 @@ import androidx.compose.ui.tooling.preview.PreviewParameterProvider
 import eu.kanade.tachiyomi.ui.manga.track.TrackItem
 import eu.kanade.test.DummyTracker
 import tachiyomi.domain.track.model.Track
-import java.text.DateFormat
+import java.time.format.DateTimeFormatter
+import java.time.format.FormatStyle
 
 internal class TrackInfoDialogHomePreviewProvider :
     PreviewParameterProvider<@Composable () -> Unit> {
@@ -24,7 +25,9 @@ internal class TrackInfoDialogHomePreviewProvider :
         remoteUrl = "https://example.com",
         startDate = 0L,
         finishDate = 0L,
+        private = false,
     )
+    private val privateTrack = aTrack.copy(private = true)
     private val trackItemWithoutTrack = TrackItem(
         track = null,
         tracker = DummyTracker(
@@ -39,6 +42,13 @@ internal class TrackInfoDialogHomePreviewProvider :
             name = "Example Tracker 2",
         ),
     )
+    private val trackItemWithPrivateTrack = TrackItem(
+        track = privateTrack,
+        tracker = DummyTracker(
+            id = 2L,
+            name = "Example Tracker 2",
+        ),
+    )
 
     private val trackersWithAndWithoutTrack = @Composable {
         TrackInfoDialogHome(
@@ -46,7 +56,7 @@ internal class TrackInfoDialogHomePreviewProvider :
                 trackItemWithoutTrack,
                 trackItemWithTrack,
             ),
-            dateFormat = DateFormat.getDateInstance(),
+            dateFormat = DateTimeFormatter.ofLocalizedDate(FormatStyle.MEDIUM),
             onStatusClick = {},
             onChapterClick = {},
             onScoreClick = {},
@@ -55,13 +65,15 @@ internal class TrackInfoDialogHomePreviewProvider :
             onNewSearch = {},
             onOpenInBrowser = {},
             onRemoved = {},
+            onCopyLink = {},
+            onTogglePrivate = {},
         )
     }
 
     private val noTrackers = @Composable {
         TrackInfoDialogHome(
             trackItems = listOf(),
-            dateFormat = DateFormat.getDateInstance(),
+            dateFormat = DateTimeFormatter.ofLocalizedDate(FormatStyle.MEDIUM),
             onStatusClick = {},
             onChapterClick = {},
             onScoreClick = {},
@@ -70,6 +82,25 @@ internal class TrackInfoDialogHomePreviewProvider :
             onNewSearch = {},
             onOpenInBrowser = {},
             onRemoved = {},
+            onCopyLink = {},
+            onTogglePrivate = {},
+        )
+    }
+
+    private val trackerWithPrivateTracking = @Composable {
+        TrackInfoDialogHome(
+            trackItems = listOf(trackItemWithPrivateTrack),
+            dateFormat = DateTimeFormatter.ofLocalizedDate(FormatStyle.MEDIUM),
+            onStatusClick = {},
+            onChapterClick = {},
+            onScoreClick = {},
+            onStartDateEdit = {},
+            onEndDateEdit = {},
+            onNewSearch = {},
+            onOpenInBrowser = {},
+            onRemoved = {},
+            onCopyLink = {},
+            onTogglePrivate = {},
         )
     }
 
@@ -77,5 +108,6 @@ internal class TrackInfoDialogHomePreviewProvider :
         get() = sequenceOf(
             trackersWithAndWithoutTrack,
             noTrackers,
+            trackerWithPrivateTracking,
         )
 }

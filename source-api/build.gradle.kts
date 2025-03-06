@@ -1,7 +1,9 @@
+import org.jetbrains.kotlin.gradle.ExperimentalKotlinGradlePluginApi
+
 plugins {
+    id("mihon.library")
     kotlin("multiplatform")
     kotlin("plugin.serialization")
-    id("com.android.library")
 }
 
 kotlin {
@@ -10,14 +12,17 @@ kotlin {
         val commonMain by getting {
             dependencies {
                 api(kotlinx.serialization.json)
-                api(libs.injekt.core)
+                api(libs.injekt)
                 api(libs.rxjava)
                 api(libs.jsoup)
+
+                implementation(project.dependencies.platform(compose.bom))
+                implementation(compose.runtime)
             }
         }
         val androidMain by getting {
             dependencies {
-                implementation(project(":core"))
+                implementation(projects.core.common)
                 api(libs.preferencektx)
 
                 // Workaround for https://youtrack.jetbrains.com/issue/KT-57605
@@ -26,6 +31,11 @@ kotlin {
             }
         }
     }
+
+    @OptIn(ExperimentalKotlinGradlePluginApi::class)
+    compilerOptions {
+        freeCompilerArgs.add("-Xexpect-actual-classes")
+    }
 }
 
 android {
@@ -33,13 +43,5 @@ android {
 
     defaultConfig {
         consumerProguardFile("consumer-proguard.pro")
-    }
-}
-
-tasks {
-    withType<org.jetbrains.kotlin.gradle.tasks.KotlinCompile> {
-        kotlinOptions.freeCompilerArgs += listOf(
-            "-Xexpect-actual-classes",
-        )
     }
 }

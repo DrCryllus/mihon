@@ -10,10 +10,12 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.IntrinsicSize
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.WindowInsets
+import androidx.compose.foundation.layout.absoluteOffset
 import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.systemBars
 import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.foundation.layout.wrapContentSize
@@ -22,6 +24,9 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.MoreVert
+import androidx.compose.material.icons.filled.VisibilityOff
+import androidx.compose.material3.Badge
+import androidx.compose.material3.BadgedBox
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
@@ -38,7 +43,6 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.style.TextAlign
@@ -52,17 +56,16 @@ import eu.kanade.presentation.theme.TachiyomiPreviewTheme
 import eu.kanade.presentation.track.components.TrackLogoIcon
 import eu.kanade.tachiyomi.data.track.Tracker
 import eu.kanade.tachiyomi.ui.manga.track.TrackItem
+import eu.kanade.tachiyomi.util.lang.toLocalDate
 import eu.kanade.tachiyomi.util.system.copyToClipboard
 import tachiyomi.i18n.MR
 import tachiyomi.presentation.core.i18n.stringResource
-import java.text.DateFormat
-
-private const val UnsetStatusTextAlpha = 0.5F
+import java.time.format.DateTimeFormatter
 
 @Composable
 fun TrackInfoDialogHome(
     trackItems: List<TrackItem>,
-    dateFormat: DateFormat,
+    dateFormat: DateTimeFormatter,
     onStatusClick: (TrackItem) -> Unit,
     onChapterClick: (TrackItem) -> Unit,
     onScoreClick: (TrackItem) -> Unit,
@@ -71,6 +74,8 @@ fun TrackInfoDialogHome(
     onNewSearch: (TrackItem) -> Unit,
     onOpenInBrowser: (TrackItem) -> Unit,
     onRemoved: (TrackItem) -> Unit,
+    onCopyLink: (TrackItem) -> Unit,
+    onTogglePrivate: (TrackItem) -> Unit,
 ) {
     Column(
         modifier = Modifier
@@ -85,10 +90,11 @@ fun TrackInfoDialogHome(
             if (item.track != null) {
                 val supportsScoring = item.tracker.getScoreList().isNotEmpty()
                 val supportsReadingDates = item.tracker.supportsReadingDates
+                val supportsPrivate = item.tracker.supportsPrivateTracking
                 TrackInfoItem(
                     title = item.track.title,
                     tracker = item.tracker,
-                    status = item.tracker.getStatus(item.track.status.toInt()),
+                    status = item.tracker.getStatus(item.track.status),
                     onStatusClick = { onStatusClick(item) },
                     chapters = "${item.track.lastChapterRead.toInt()}".let {
                         val totalChapters = item.track.totalChapters
@@ -104,17 +110,21 @@ fun TrackInfoDialogHome(
                         .takeIf { supportsScoring && item.track.score != 0.0 },
                     onScoreClick = { onScoreClick(item) }
                         .takeIf { supportsScoring },
-                    startDate = remember(item.track.startDate) { dateFormat.format(item.track.startDate) }
+                    startDate = remember(item.track.startDate) { dateFormat.format(item.track.startDate.toLocalDate()) }
                         .takeIf { supportsReadingDates && item.track.startDate != 0L },
                     onStartDateClick = { onStartDateEdit(item) } // TODO
                         .takeIf { supportsReadingDates },
-                    endDate = dateFormat.format(item.track.finishDate)
+                    endDate = dateFormat.format(item.track.finishDate.toLocalDate())
                         .takeIf { supportsReadingDates && item.track.finishDate != 0L },
                     onEndDateClick = { onEndDateEdit(item) }
                         .takeIf { supportsReadingDates },
                     onNewSearch = { onNewSearch(item) },
                     onOpenInBrowser = { onOpenInBrowser(item) },
                     onRemoved = { onRemoved(item) },
+                    onCopyLink = { onCopyLink(item) },
+                    private = item.track.private,
+                    onTogglePrivate = { onTogglePrivate(item) }
+                        .takeIf { supportsPrivate },
                 )
             } else {
                 TrackInfoItemEmpty(
@@ -143,16 +153,38 @@ private fun TrackInfoItem(
     onNewSearch: () -> Unit,
     onOpenInBrowser: () -> Unit,
     onRemoved: () -> Unit,
+    onCopyLink: () -> Unit,
+    private: Boolean,
+    onTogglePrivate: (() -> Unit)?,
 ) {
     val context = LocalContext.current
     Column {
         Row(
             verticalAlignment = Alignment.CenterVertically,
         ) {
-            TrackLogoIcon(
-                tracker = tracker,
-                onClick = onOpenInBrowser,
-            )
+            BadgedBox(
+                badge = {
+                    if (private) {
+                        Badge(
+                            containerColor = MaterialTheme.colorScheme.primary,
+                            contentColor = MaterialTheme.colorScheme.onPrimary,
+                            modifier = Modifier.absoluteOffset(x = (-5).dp),
+                        ) {
+                            Icon(
+                                imageVector = Icons.Filled.VisibilityOff,
+                                contentDescription = stringResource(MR.strings.tracked_privately),
+                                modifier = Modifier.size(14.dp),
+                            )
+                        }
+                    }
+                },
+            ) {
+                TrackLogoIcon(
+                    tracker = tracker,
+                    onClick = onOpenInBrowser,
+                    onLongClick = onCopyLink,
+                )
+            }
             Box(
                 modifier = Modifier
                     .height(48.dp)
@@ -178,6 +210,9 @@ private fun TrackInfoItem(
             TrackInfoItemMenu(
                 onOpenInBrowser = onOpenInBrowser,
                 onRemoved = onRemoved,
+                onCopyLink = onCopyLink,
+                private = private,
+                onTogglePrivate = onTogglePrivate,
             )
         }
 
@@ -185,7 +220,7 @@ private fun TrackInfoItem(
             modifier = Modifier
                 .padding(top = 12.dp)
                 .clip(MaterialTheme.shapes.medium)
-                .background(MaterialTheme.colorScheme.surface)
+                .background(MaterialTheme.colorScheme.surfaceContainerHighest)
                 .padding(8.dp)
                 .clip(RoundedCornerShape(6.dp)),
         ) {
@@ -205,10 +240,9 @@ private fun TrackInfoItem(
                     if (onScoreClick != null) {
                         VerticalDivider()
                         TrackDetailsItem(
-                            modifier = Modifier
-                                .weight(1f)
-                                .alpha(if (score == null) UnsetStatusTextAlpha else 1f),
-                            text = score ?: stringResource(MR.strings.score),
+                            modifier = Modifier.weight(1f),
+                            text = score,
+                            placeholder = stringResource(MR.strings.score),
                             onClick = onScoreClick,
                         )
                     }
@@ -237,6 +271,8 @@ private fun TrackInfoItem(
     }
 }
 
+private const val UNSET_TEXT_ALPHA = 0.5F
+
 @Composable
 private fun TrackDetailsItem(
     text: String?,
@@ -257,7 +293,7 @@ private fun TrackDetailsItem(
             overflow = TextOverflow.Ellipsis,
             style = MaterialTheme.typography.bodyMedium,
             textAlign = TextAlign.Center,
-            color = MaterialTheme.colorScheme.onSurface.copy(alpha = if (text == null) UnsetStatusTextAlpha else 1f),
+            color = MaterialTheme.colorScheme.onSurface.copy(alpha = if (text == null) UNSET_TEXT_ALPHA else 1f),
         )
     }
 }
@@ -286,6 +322,9 @@ private fun TrackInfoItemEmpty(
 private fun TrackInfoItemMenu(
     onOpenInBrowser: () -> Unit,
     onRemoved: () -> Unit,
+    onCopyLink: () -> Unit,
+    private: Boolean,
+    onTogglePrivate: (() -> Unit)?,
 ) {
     var expanded by remember { mutableStateOf(false) }
     Box(modifier = Modifier.wrapContentSize(Alignment.TopStart)) {
@@ -306,6 +345,32 @@ private fun TrackInfoItemMenu(
                     expanded = false
                 },
             )
+            DropdownMenuItem(
+                text = { Text(stringResource(MR.strings.action_copy_link)) },
+                onClick = {
+                    onCopyLink()
+                    expanded = false
+                },
+            )
+            if (onTogglePrivate != null) {
+                DropdownMenuItem(
+                    text = {
+                        Text(
+                            stringResource(
+                                if (private) {
+                                    MR.strings.action_toggle_private_off
+                                } else {
+                                    MR.strings.action_toggle_private_on
+                                },
+                            ),
+                        )
+                    },
+                    onClick = {
+                        onTogglePrivate()
+                        expanded = false
+                    },
+                )
+            }
             DropdownMenuItem(
                 text = { Text(stringResource(MR.strings.action_remove)) },
                 onClick = {

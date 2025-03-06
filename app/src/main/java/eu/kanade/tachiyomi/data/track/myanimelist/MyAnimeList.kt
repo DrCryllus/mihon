@@ -7,6 +7,7 @@ import eu.kanade.tachiyomi.data.database.models.Track
 import eu.kanade.tachiyomi.data.track.BaseTracker
 import eu.kanade.tachiyomi.data.track.DeletableTracker
 import eu.kanade.tachiyomi.data.track.model.TrackSearch
+import eu.kanade.tachiyomi.data.track.myanimelist.dto.MALOAuth
 import kotlinx.collections.immutable.ImmutableList
 import kotlinx.collections.immutable.toImmutableList
 import kotlinx.serialization.encodeToString
@@ -18,12 +19,12 @@ import tachiyomi.domain.track.model.Track as DomainTrack
 class MyAnimeList(id: Long) : BaseTracker(id, "MyAnimeList"), DeletableTracker {
 
     companion object {
-        const val READING = 1
-        const val COMPLETED = 2
-        const val ON_HOLD = 3
-        const val DROPPED = 4
-        const val PLAN_TO_READ = 6
-        const val REREADING = 7
+        const val READING = 1L
+        const val COMPLETED = 2L
+        const val ON_HOLD = 3L
+        const val DROPPED = 4L
+        const val PLAN_TO_READ = 6L
+        const val REREADING = 7L
 
         private const val SEARCH_ID_PREFIX = "id:"
         private const val SEARCH_LIST_PREFIX = "my:"
@@ -35,7 +36,7 @@ class MyAnimeList(id: Long) : BaseTracker(id, "MyAnimeList"), DeletableTracker {
 
     private val json: Json by injectLazy()
 
-    private val interceptor by lazy { MyAnimeListInterceptor(this, getPassword()) }
+    private val interceptor by lazy { MyAnimeListInterceptor(this) }
     private val api by lazy { MyAnimeListApi(id, client, interceptor) }
 
     override val supportsReadingDates: Boolean = true
@@ -44,11 +45,11 @@ class MyAnimeList(id: Long) : BaseTracker(id, "MyAnimeList"), DeletableTracker {
 
     override fun getLogoColor() = Color.rgb(46, 81, 162)
 
-    override fun getStatusList(): List<Int> {
+    override fun getStatusList(): List<Long> {
         return listOf(READING, COMPLETED, ON_HOLD, DROPPED, PLAN_TO_READ, REREADING)
     }
 
-    override fun getStatus(status: Int): StringResource? = when (status) {
+    override fun getStatus(status: Long): StringResource? = when (status) {
         READING -> MR.strings.reading
         PLAN_TO_READ -> MR.strings.plan_to_read
         COMPLETED -> MR.strings.completed
@@ -58,11 +59,11 @@ class MyAnimeList(id: Long) : BaseTracker(id, "MyAnimeList"), DeletableTracker {
         else -> null
     }
 
-    override fun getReadingStatus(): Int = READING
+    override fun getReadingStatus(): Long = READING
 
-    override fun getRereadingStatus(): Int = REREADING
+    override fun getRereadingStatus(): Long = REREADING
 
-    override fun getCompletionStatus(): Int = COMPLETED
+    override fun getCompletionStatus(): Long = COMPLETED
 
     override fun getScoreList(): ImmutableList<String> = SCORE_LIST
 
@@ -77,12 +78,12 @@ class MyAnimeList(id: Long) : BaseTracker(id, "MyAnimeList"), DeletableTracker {
     override suspend fun update(track: Track, didReadChapter: Boolean): Track {
         if (track.status != COMPLETED) {
             if (didReadChapter) {
-                if (track.last_chapter_read.toInt() == track.total_chapters && track.total_chapters > 0) {
+                if (track.last_chapter_read.toLong() == track.total_chapters && track.total_chapters > 0) {
                     track.status = COMPLETED
                     track.finished_reading_date = System.currentTimeMillis()
                 } else if (track.status != REREADING) {
                     track.status = READING
-                    if (track.last_chapter_read == 1F) {
+                    if (track.last_chapter_read == 1.0) {
                         track.started_reading_date = System.currentTimeMillis()
                     }
                 }
@@ -104,14 +105,14 @@ class MyAnimeList(id: Long) : BaseTracker(id, "MyAnimeList"), DeletableTracker {
 
             if (track.status != COMPLETED) {
                 val isRereading = track.status == REREADING
-                track.status = if (isRereading.not() && hasReadChapters) READING else track.status
+                track.status = if (!isRereading && hasReadChapters) READING else track.status
             }
 
             update(track)
         } else {
             // Set default fields if it's not found in the list
             track.status = if (hasReadChapters) READING else PLAN_TO_READ
-            track.score = 0F
+            track.score = 0.0
             add(track)
         }
     }
@@ -143,7 +144,7 @@ class MyAnimeList(id: Long) : BaseTracker(id, "MyAnimeList"), DeletableTracker {
             val oauth = api.getAccessToken(authCode)
             interceptor.setAuth(oauth)
             val username = api.getCurrentUser()
-            saveCredentials(username, oauth.access_token)
+            saveCredentials(username, oauth.accessToken)
         } catch (e: Throwable) {
             logout()
         }
@@ -155,13 +156,21 @@ class MyAnimeList(id: Long) : BaseTracker(id, "MyAnimeList"), DeletableTracker {
         interceptor.setAuth(null)
     }
 
-    fun saveOAuth(oAuth: OAuth?) {
+    fun getIfAuthExpired(): Boolean {
+        return trackPreferences.trackAuthExpired(this).get()
+    }
+
+    fun setAuthExpired() {
+        trackPreferences.trackAuthExpired(this).set(true)
+    }
+
+    fun saveOAuth(oAuth: MALOAuth?) {
         trackPreferences.trackToken(this).set(json.encodeToString(oAuth))
     }
 
-    fun loadOAuth(): OAuth? {
+    fun loadOAuth(): MALOAuth? {
         return try {
-            json.decodeFromString<OAuth>(trackPreferences.trackToken(this).get())
+            json.decodeFromString<MALOAuth>(trackPreferences.trackToken(this).get())
         } catch (e: Exception) {
             null
         }

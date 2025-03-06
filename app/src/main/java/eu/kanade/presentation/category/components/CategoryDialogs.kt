@@ -30,7 +30,7 @@ import eu.kanade.presentation.category.visualName
 import kotlinx.collections.immutable.ImmutableList
 import kotlinx.collections.immutable.toImmutableList
 import kotlinx.coroutines.delay
-import tachiyomi.core.preference.CheckboxState
+import tachiyomi.core.common.preference.CheckboxState
 import tachiyomi.domain.category.model.Category
 import tachiyomi.i18n.MR
 import tachiyomi.presentation.core.components.material.padding
@@ -189,35 +189,6 @@ fun CategoryDeleteDialog(
         },
         text = {
             Text(text = stringResource(MR.strings.delete_category_confirmation, category))
-        },
-    )
-}
-
-@Composable
-fun CategorySortAlphabeticallyDialog(
-    onDismissRequest: () -> Unit,
-    onSort: () -> Unit,
-) {
-    AlertDialog(
-        onDismissRequest = onDismissRequest,
-        confirmButton = {
-            TextButton(onClick = {
-                onSort()
-                onDismissRequest()
-            }) {
-                Text(text = stringResource(MR.strings.action_ok))
-            }
-        },
-        dismissButton = {
-            TextButton(onClick = onDismissRequest) {
-                Text(text = stringResource(MR.strings.action_cancel))
-            }
-        },
-        title = {
-            Text(text = stringResource(MR.strings.action_sort_category))
-        },
-        text = {
-            Text(text = stringResource(MR.strings.sort_category_confirmation))
         },
     )
 }

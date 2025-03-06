@@ -7,6 +7,7 @@ import dev.icerock.moko.resources.StringResource
 import eu.kanade.tachiyomi.data.database.models.Track
 import eu.kanade.tachiyomi.data.track.model.TrackSearch
 import kotlinx.collections.immutable.ImmutableList
+import kotlinx.coroutines.flow.Flow
 import okhttp3.OkHttpClient
 import tachiyomi.domain.track.model.Track as DomainTrack
 
@@ -21,28 +22,30 @@ interface Tracker {
     // Application and remote support for reading dates
     val supportsReadingDates: Boolean
 
+    val supportsPrivateTracking: Boolean
+
     @ColorInt
     fun getLogoColor(): Int
 
     @DrawableRes
     fun getLogo(): Int
 
-    fun getStatusList(): List<Int>
+    fun getStatusList(): List<Long>
 
-    fun getStatus(status: Int): StringResource?
+    fun getStatus(status: Long): StringResource?
 
-    fun getReadingStatus(): Int
+    fun getReadingStatus(): Long
 
-    fun getRereadingStatus(): Int
+    fun getRereadingStatus(): Long
 
-    fun getCompletionStatus(): Int
+    fun getCompletionStatus(): Long
 
     fun getScoreList(): ImmutableList<String>
 
     // TODO: Store all scores as 10 point in the future maybe?
     fun get10PointScore(track: DomainTrack): Double
 
-    fun indexToScore(index: Int): Float
+    fun indexToScore(index: Int): Double
 
     fun displayScore(track: DomainTrack): String
 
@@ -61,6 +64,8 @@ interface Tracker {
 
     val isLoggedIn: Boolean
 
+    val isLoggedInFlow: Flow<Boolean>
+
     fun getUsername(): String
 
     fun getPassword(): String
@@ -70,7 +75,7 @@ interface Tracker {
     // TODO: move this to an interactor, and update all trackers based on common data
     suspend fun register(item: Track, mangaId: Long)
 
-    suspend fun setRemoteStatus(track: Track, status: Int)
+    suspend fun setRemoteStatus(track: Track, status: Long)
 
     suspend fun setRemoteLastChapterRead(track: Track, chapterNumber: Int)
 
@@ -79,4 +84,6 @@ interface Tracker {
     suspend fun setRemoteStartDate(track: Track, epochMillis: Long)
 
     suspend fun setRemoteFinishDate(track: Track, epochMillis: Long)
+
+    suspend fun setRemotePrivate(track: Track, private: Boolean)
 }

@@ -1,8 +1,8 @@
 plugins {
-    id("com.android.library")
+    id("mihon.library")
     kotlin("android")
     kotlin("plugin.serialization")
-    id("app.cash.sqldelight")
+    alias(libs.plugins.sqldelight)
 }
 
 android {
@@ -23,19 +23,16 @@ android {
     }
 }
 
-dependencies {
-    implementation(project(":source-api"))
-    implementation(project(":domain"))
-    implementation(project(":core"))
-
-    api(libs.bundles.sqldelight)
+kotlin {
+    compilerOptions {
+        freeCompilerArgs.add("-opt-in=kotlinx.serialization.ExperimentalSerializationApi")
+    }
 }
 
-tasks {
-    withType<org.jetbrains.kotlin.gradle.tasks.KotlinCompile> {
-        kotlinOptions.freeCompilerArgs += listOf(
-            "-Xcontext-receivers",
-            "-opt-in=kotlinx.serialization.ExperimentalSerializationApi",
-        )
-    }
+dependencies {
+    implementation(projects.sourceApi)
+    implementation(projects.domain)
+    implementation(projects.core.common)
+
+    api(libs.bundles.sqldelight)
 }

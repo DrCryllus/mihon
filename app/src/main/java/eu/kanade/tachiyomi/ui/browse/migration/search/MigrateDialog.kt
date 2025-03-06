@@ -32,10 +32,10 @@ import eu.kanade.tachiyomi.source.Source
 import eu.kanade.tachiyomi.source.model.SChapter
 import eu.kanade.tachiyomi.ui.browse.migration.MigrationFlags
 import kotlinx.coroutines.flow.update
-import tachiyomi.core.preference.Preference
-import tachiyomi.core.preference.PreferenceStore
-import tachiyomi.core.util.lang.launchIO
-import tachiyomi.core.util.lang.withUIContext
+import tachiyomi.core.common.preference.Preference
+import tachiyomi.core.common.preference.PreferenceStore
+import tachiyomi.core.common.util.lang.launchIO
+import tachiyomi.core.common.util.lang.withUIContext
 import tachiyomi.domain.category.interactor.GetCategories
 import tachiyomi.domain.category.interactor.SetMangaCategories
 import tachiyomi.domain.chapter.interactor.GetChaptersByMangaId
@@ -284,7 +284,7 @@ internal class MigrateDialogScreenModel(
         }
 
         if (replace) {
-            updateManga.await(MangaUpdate(oldManga.id, favorite = false, dateAdded = 0))
+            updateManga.awaitUpdateFavorite(oldManga.id, favorite = false)
         }
 
         // Update custom cover (recheck if custom cover exists)

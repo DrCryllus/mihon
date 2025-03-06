@@ -7,11 +7,11 @@ import eu.kanade.tachiyomi.R
 import eu.kanade.tachiyomi.data.database.models.Track
 import eu.kanade.tachiyomi.data.track.BaseTracker
 import eu.kanade.tachiyomi.data.track.DeletableTracker
+import eu.kanade.tachiyomi.data.track.anilist.dto.ALOAuth
 import eu.kanade.tachiyomi.data.track.model.TrackSearch
 import kotlinx.collections.immutable.ImmutableList
 import kotlinx.collections.immutable.persistentListOf
 import kotlinx.collections.immutable.toImmutableList
-import kotlinx.serialization.encodeToString
 import kotlinx.serialization.json.Json
 import tachiyomi.i18n.MR
 import uy.kohesive.injekt.injectLazy
@@ -20,12 +20,12 @@ import tachiyomi.domain.track.model.Track as DomainTrack
 class Anilist(id: Long) : BaseTracker(id, "AniList"), DeletableTracker {
 
     companion object {
-        const val READING = 1
-        const val COMPLETED = 2
-        const val ON_HOLD = 3
-        const val DROPPED = 4
-        const val PLAN_TO_READ = 5
-        const val REREADING = 6
+        const val READING = 1L
+        const val COMPLETED = 2L
+        const val ON_HOLD = 3L
+        const val DROPPED = 4L
+        const val PLAN_TO_READ = 5L
+        const val REREADING = 6L
 
         const val POINT_100 = "POINT_100"
         const val POINT_10 = "POINT_10"
@@ -41,6 +41,8 @@ class Anilist(id: Long) : BaseTracker(id, "AniList"), DeletableTracker {
     private val api by lazy { AnilistApi(client, interceptor) }
 
     override val supportsReadingDates: Boolean = true
+
+    override val supportsPrivateTracking: Boolean = true
 
     private val scorePreference = trackPreferences.anilistScoreType()
 
@@ -58,11 +60,11 @@ class Anilist(id: Long) : BaseTracker(id, "AniList"), DeletableTracker {
 
     override fun getLogoColor() = Color.rgb(18, 25, 35)
 
-    override fun getStatusList(): List<Int> {
+    override fun getStatusList(): List<Long> {
         return listOf(READING, COMPLETED, ON_HOLD, DROPPED, PLAN_TO_READ, REREADING)
     }
 
-    override fun getStatus(status: Int): StringResource? = when (status) {
+    override fun getStatus(status: Long): StringResource? = when (status) {
         READING -> MR.strings.reading
         PLAN_TO_READ -> MR.strings.plan_to_read
         COMPLETED -> MR.strings.completed
@@ -72,11 +74,11 @@ class Anilist(id: Long) : BaseTracker(id, "AniList"), DeletableTracker {
         else -> null
     }
 
-    override fun getReadingStatus(): Int = READING
+    override fun getReadingStatus(): Long = READING
 
-    override fun getRereadingStatus(): Int = REREADING
+    override fun getRereadingStatus(): Long = REREADING
 
-    override fun getCompletionStatus(): Int = COMPLETED
+    override fun getCompletionStatus(): Long = COMPLETED
 
     override fun getScoreList(): ImmutableList<String> {
         return when (scorePreference.get()) {
@@ -99,24 +101,24 @@ class Anilist(id: Long) : BaseTracker(id, "AniList"), DeletableTracker {
         return track.score / 10.0
     }
 
-    override fun indexToScore(index: Int): Float {
+    override fun indexToScore(index: Int): Double {
         return when (scorePreference.get()) {
             // 10 point
-            POINT_10 -> index * 10f
+            POINT_10 -> index * 10.0
             // 100 point
-            POINT_100 -> index.toFloat()
+            POINT_100 -> index.toDouble()
             // 5 stars
             POINT_5 -> when (index) {
-                0 -> 0f
-                else -> index * 20f - 10f
+                0 -> 0.0
+                else -> index * 20.0 - 10.0
             }
             // Smiley
             POINT_3 -> when (index) {
-                0 -> 0f
-                else -> index * 25f + 10f
+                0 -> 0.0
+                else -> index * 25.0 + 10.0
             }
             // 10 point decimal
-            POINT_10_DECIMAL -> index.toFloat()
+            POINT_10_DECIMAL -> index.toDouble()
             else -> throw Exception("Unknown score type")
         }
     }
@@ -129,13 +131,15 @@ class Anilist(id: Long) : BaseTracker(id, "AniList"), DeletableTracker {
                 0.0 -> "0 ★"
                 else -> "${((score + 10) / 20).toInt()} ★"
             }
+
             POINT_3 -> when {
                 score == 0.0 -> "0"
                 score <= 35 -> "😦"
                 score <= 60 -> "😐"
                 else -> "😊"
             }
-            else -> track.toAnilistScore()
+
+            else -> track.toApiScore()
         }
     }
 
@@ -153,12 +157,12 @@ class Anilist(id: Long) : BaseTracker(id, "AniList"), DeletableTracker {
 
         if (track.status != COMPLETED) {
             if (didReadChapter) {
-                if (track.last_chapter_read.toInt() == track.total_chapters && track.total_chapters > 0) {
+                if (track.last_chapter_read.toLong() == track.total_chapters && track.total_chapters > 0) {
                     track.status = COMPLETED
                     track.finished_reading_date = System.currentTimeMillis()
                 } else if (track.status != REREADING) {
                     track.status = READING
-                    if (track.last_chapter_read == 1F) {
+                    if (track.last_chapter_read == 1.0) {
                         track.started_reading_date = System.currentTimeMillis()
                     }
                 }
@@ -180,19 +184,19 @@ class Anilist(id: Long) : BaseTracker(id, "AniList"), DeletableTracker {
     override suspend fun bind(track: Track, hasReadChapters: Boolean): Track {
         val remoteTrack = api.findLibManga(track, getUsername().toInt())
         return if (remoteTrack != null) {
-            track.copyPersonalFrom(remoteTrack)
+            track.copyPersonalFrom(remoteTrack, copyRemotePrivate = false)
             track.library_id = remoteTrack.library_id
 
             if (track.status != COMPLETED) {
                 val isRereading = track.status == REREADING
-                track.status = if (isRereading.not() && hasReadChapters) READING else track.status
+                track.status = if (!isRereading && hasReadChapters) READING else track.status
             }
 
             update(track)
         } else {
             // Set default fields if it's not found in the list
             track.status = if (hasReadChapters) READING else PLAN_TO_READ
-            track.score = 0F
+            track.score = 0.0
             add(track)
         }
     }
@@ -217,7 +221,7 @@ class Anilist(id: Long) : BaseTracker(id, "AniList"), DeletableTracker {
             interceptor.setAuth(oauth)
             val (username, scoreType) = api.getCurrentUser()
             scorePreference.set(scoreType)
-            saveCredentials(username.toString(), oauth.access_token)
+            saveCredentials(username.toString(), oauth.accessToken)
         } catch (e: Throwable) {
             logout()
         }
@@ -229,13 +233,13 @@ class Anilist(id: Long) : BaseTracker(id, "AniList"), DeletableTracker {
         interceptor.setAuth(null)
     }
 
-    fun saveOAuth(oAuth: OAuth?) {
-        trackPreferences.trackToken(this).set(json.encodeToString(oAuth))
+    fun saveOAuth(alOAuth: ALOAuth?) {
+        trackPreferences.trackToken(this).set(json.encodeToString(alOAuth))
     }
 
-    fun loadOAuth(): OAuth? {
+    fun loadOAuth(): ALOAuth? {
         return try {
-            json.decodeFromString<OAuth>(trackPreferences.trackToken(this).get())
+            json.decodeFromString<ALOAuth>(trackPreferences.trackToken(this).get())
         } catch (e: Exception) {
             null
         }

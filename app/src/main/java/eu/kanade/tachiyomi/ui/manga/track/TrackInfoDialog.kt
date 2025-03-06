@@ -9,6 +9,7 @@ import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.systemBars
 import androidx.compose.foundation.layout.windowInsetsPadding
+import androidx.compose.foundation.text.input.rememberTextFieldState
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material3.ButtonDefaults
@@ -28,7 +29,6 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
-import androidx.compose.ui.text.input.TextFieldValue
 import androidx.compose.ui.text.style.TextAlign
 import cafe.adriel.voyager.core.model.ScreenModel
 import cafe.adriel.voyager.core.model.StateScreenModel
@@ -54,6 +54,7 @@ import eu.kanade.tachiyomi.data.track.Tracker
 import eu.kanade.tachiyomi.data.track.TrackerManager
 import eu.kanade.tachiyomi.data.track.model.TrackSearch
 import eu.kanade.tachiyomi.util.lang.convertEpochMillisZone
+import eu.kanade.tachiyomi.util.system.copyToClipboard
 import eu.kanade.tachiyomi.util.system.openInBrowser
 import eu.kanade.tachiyomi.util.system.toast
 import kotlinx.collections.immutable.ImmutableList
@@ -64,11 +65,11 @@ import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import logcat.LogPriority
-import tachiyomi.core.i18n.stringResource
-import tachiyomi.core.util.lang.launchNonCancellable
-import tachiyomi.core.util.lang.withIOContext
-import tachiyomi.core.util.lang.withUIContext
-import tachiyomi.core.util.system.logcat
+import tachiyomi.core.common.i18n.stringResource
+import tachiyomi.core.common.util.lang.launchNonCancellable
+import tachiyomi.core.common.util.lang.withIOContext
+import tachiyomi.core.common.util.lang.withUIContext
+import tachiyomi.core.common.util.system.logcat
 import tachiyomi.domain.manga.interactor.GetManga
 import tachiyomi.domain.source.service.SourceManager
 import tachiyomi.domain.track.interactor.DeleteTrack
@@ -170,6 +171,8 @@ data class TrackInfoDialogHomeScreen(
                     ),
                 )
             },
+            onCopyLink = { context.copyTrackerLink(it) },
+            onTogglePrivate = screenModel::togglePrivate,
         )
     }
 
@@ -180,6 +183,13 @@ data class TrackInfoDialogHomeScreen(
         val url = trackItem.track?.remoteUrl ?: return
         if (url.isNotBlank()) {
             context.openInBrowser(url)
+        }
+    }
+
+    private fun Context.copyTrackerLink(trackItem: TrackItem) {
+        val url = trackItem.track?.remoteUrl ?: return
+        if (url.isNotBlank()) {
+            copyToClipboard(url, url)
         }
     }
 
@@ -238,8 +248,14 @@ data class TrackInfoDialogHomeScreen(
                 }
         }
 
+        fun togglePrivate(item: TrackItem) {
+            screenModelScope.launchNonCancellable {
+                item.tracker.setRemotePrivate(item.track!!.toDbTrack(), !item.track.private)
+            }
+        }
+
         private fun List<Track>.mapToTrackItem(): List<TrackItem> {
-            val loggedInTrackers = Injekt.get<TrackerManager>().trackers.filter { it.isLoggedIn }
+            val loggedInTrackers = Injekt.get<TrackerManager>().loggedInTrackers()
             val source = Injekt.get<SourceManager>().getOrStub(sourceId)
             return loggedInTrackers
                 // Map to TrackItem
@@ -285,13 +301,13 @@ private data class TrackStatusSelectorScreen(
     private class Model(
         private val track: Track,
         private val tracker: Tracker,
-    ) : StateScreenModel<Model.State>(State(track.status.toInt())) {
+    ) : StateScreenModel<Model.State>(State(track.status)) {
 
-        fun getSelections(): Map<Int, StringResource?> {
+        fun getSelections(): Map<Long, StringResource?> {
             return tracker.getStatusList().associateWith { tracker.getStatus(it) }
         }
 
-        fun setSelection(selection: Int) {
+        fun setSelection(selection: Long) {
             mutableState.update { it.copy(selection = selection) }
         }
 
@@ -303,7 +319,7 @@ private data class TrackStatusSelectorScreen(
 
         @Immutable
         data class State(
-            val selection: Int,
+            val selection: Long,
         )
     }
 }
@@ -427,6 +443,7 @@ private data class TrackDateSelectorScreen(
     private val start: Boolean,
 ) : Screen() {
 
+    @Transient
     private val selectableDates = object : SelectableDates {
         override fun isSelectableDate(utcTimeMillis: Long): Boolean {
             val dateToCheck = Instant.ofEpochMilli(utcTimeMillis)
@@ -656,19 +673,21 @@ data class TrackerSearchScreen(
 
         val state by screenModel.state.collectAsState()
 
-        var textFieldValue by remember { mutableStateOf(TextFieldValue(initialQuery)) }
+        val textFieldState = rememberTextFieldState(initialQuery)
         TrackerSearch(
-            query = textFieldValue,
-            onQueryChange = { textFieldValue = it },
-            onDispatchQuery = { screenModel.trackingSearch(textFieldValue.text) },
+            state = textFieldState,
+            onDispatchQuery = { screenModel.trackingSearch(textFieldState.text.toString()) },
             queryResult = state.queryResult,
             selected = state.selected,
             onSelectedChange = screenModel::updateSelection,
-            onConfirmSelection = {
-                screenModel.registerTracking(state.selected!!)
+            onConfirmSelection = f@{ private: Boolean ->
+                val selected = state.selected ?: return@f
+                selected.private = private
+                screenModel.registerTracking(selected)
                 navigator.pop()
             },
             onDismissRequest = navigator::pop,
+            supportsPrivateTracking = screenModel.supportsPrivateTracking,
         )
     }
 
@@ -678,6 +697,8 @@ data class TrackerSearchScreen(
         initialQuery: String,
         private val tracker: Tracker,
     ) : StateScreenModel<Model.State>(State()) {
+
+        val supportsPrivateTracking = tracker.supportsPrivateTracking
 
         init {
             // Run search on first launch
@@ -815,7 +836,11 @@ private data class TrackerRemoveScreen(
 
         fun deleteMangaFromService() {
             screenModelScope.launchNonCancellable {
-                (tracker as DeletableTracker).delete(track)
+                try {
+                    (tracker as DeletableTracker).delete(track)
+                } catch (e: Exception) {
+                    logcat(LogPriority.ERROR, e) { "Failed to delete entry from service" }
+                }
             }
         }
 

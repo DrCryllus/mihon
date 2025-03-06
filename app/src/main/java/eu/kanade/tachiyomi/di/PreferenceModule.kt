@@ -5,13 +5,14 @@ import eu.kanade.domain.base.BasePreferences
 import eu.kanade.domain.source.service.SourcePreferences
 import eu.kanade.domain.track.service.TrackPreferences
 import eu.kanade.domain.ui.UiPreferences
+import eu.kanade.tachiyomi.core.security.PrivacyPreferences
 import eu.kanade.tachiyomi.core.security.SecurityPreferences
 import eu.kanade.tachiyomi.network.NetworkPreferences
 import eu.kanade.tachiyomi.ui.reader.setting.ReaderPreferences
-import eu.kanade.tachiyomi.util.system.isDevFlavor
-import tachiyomi.core.preference.AndroidPreferenceStore
-import tachiyomi.core.preference.PreferenceStore
-import tachiyomi.core.storage.AndroidStorageFolderProvider
+import eu.kanade.tachiyomi.util.system.isDebugBuildType
+import tachiyomi.core.common.preference.AndroidPreferenceStore
+import tachiyomi.core.common.preference.PreferenceStore
+import tachiyomi.core.common.storage.AndroidStorageFolderProvider
 import tachiyomi.domain.backup.service.BackupPreferences
 import tachiyomi.domain.download.service.DownloadPreferences
 import tachiyomi.domain.library.service.LibraryPreferences
@@ -30,7 +31,7 @@ class PreferenceModule(val app: Application) : InjektModule {
         addSingletonFactory {
             NetworkPreferences(
                 preferenceStore = get(),
-                verboseLogging = isDevFlavor,
+                verboseLogging = isDebugBuildType,
             )
         }
         addSingletonFactory {
@@ -38,6 +39,9 @@ class PreferenceModule(val app: Application) : InjektModule {
         }
         addSingletonFactory {
             SecurityPreferences(get())
+        }
+        addSingletonFactory {
+            PrivacyPreferences(get())
         }
         addSingletonFactory {
             LibraryPreferences(get())

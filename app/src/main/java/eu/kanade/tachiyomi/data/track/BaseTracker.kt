@@ -8,11 +8,13 @@ import eu.kanade.domain.track.service.TrackPreferences
 import eu.kanade.tachiyomi.data.database.models.Track
 import eu.kanade.tachiyomi.network.NetworkHelper
 import eu.kanade.tachiyomi.util.system.toast
+import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.combine
 import logcat.LogPriority
 import okhttp3.OkHttpClient
-import tachiyomi.core.util.lang.withIOContext
-import tachiyomi.core.util.lang.withUIContext
-import tachiyomi.core.util.system.logcat
+import tachiyomi.core.common.util.lang.withIOContext
+import tachiyomi.core.common.util.lang.withUIContext
+import tachiyomi.core.common.util.system.logcat
 import tachiyomi.domain.track.interactor.InsertTrack
 import uy.kohesive.injekt.Injekt
 import uy.kohesive.injekt.api.get
@@ -35,13 +37,15 @@ abstract class BaseTracker(
     // Application and remote support for reading dates
     override val supportsReadingDates: Boolean = false
 
+    override val supportsPrivateTracking: Boolean = false
+
     // TODO: Store all scores as 10 point in the future maybe?
     override fun get10PointScore(track: DomainTrack): Double {
         return track.score
     }
 
-    override fun indexToScore(index: Int): Float {
-        return index.toFloat()
+    override fun indexToScore(index: Int): Double {
+        return index.toDouble()
     }
 
     @CallSuper
@@ -52,6 +56,15 @@ abstract class BaseTracker(
     override val isLoggedIn: Boolean
         get() = getUsername().isNotEmpty() &&
             getPassword().isNotEmpty()
+
+    override val isLoggedInFlow: Flow<Boolean> by lazy {
+        combine(
+            trackPreferences.trackUsername(this).changes(),
+            trackPreferences.trackPassword(this).changes(),
+        ) { username, password ->
+            username.isNotEmpty() && password.isNotEmpty()
+        }
+    }
 
     override fun getUsername() = trackPreferences.trackUsername(this).get()
 
@@ -70,24 +83,24 @@ abstract class BaseTracker(
         }
     }
 
-    override suspend fun setRemoteStatus(track: Track, status: Int) {
+    override suspend fun setRemoteStatus(track: Track, status: Long) {
         track.status = status
-        if (track.status == getCompletionStatus() && track.total_chapters != 0) {
-            track.last_chapter_read = track.total_chapters.toFloat()
+        if (track.status == getCompletionStatus() && track.total_chapters != 0L) {
+            track.last_chapter_read = track.total_chapters.toDouble()
         }
         updateRemote(track)
     }
 
     override suspend fun setRemoteLastChapterRead(track: Track, chapterNumber: Int) {
         if (
-            track.last_chapter_read == 0f &&
+            track.last_chapter_read == 0.0 &&
             track.last_chapter_read < chapterNumber &&
             track.status != getRereadingStatus()
         ) {
             track.status = getReadingStatus()
         }
-        track.last_chapter_read = chapterNumber.toFloat()
-        if (track.total_chapters != 0 && track.last_chapter_read.toInt() == track.total_chapters) {
+        track.last_chapter_read = chapterNumber.toDouble()
+        if (track.total_chapters != 0L && track.last_chapter_read.toLong() == track.total_chapters) {
             track.status = getCompletionStatus()
             track.finished_reading_date = System.currentTimeMillis()
         }
@@ -106,6 +119,11 @@ abstract class BaseTracker(
 
     override suspend fun setRemoteFinishDate(track: Track, epochMillis: Long) {
         track.finished_reading_date = epochMillis
+        updateRemote(track)
+    }
+
+    override suspend fun setRemotePrivate(track: Track, private: Boolean) {
+        track.private = private
         updateRemote(track)
     }
 
